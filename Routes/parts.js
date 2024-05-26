@@ -37,6 +37,7 @@ router2.get("/get-a-part", verifyToken, async (req, res) => {
 })
 
 //3.Providing parts to service vehicle
+
 router2.post('/reduce-part', verifyToken, async (req, res) => {
   const { partId, partName, carModelName, decrementValue, partType } = req.body;
 
@@ -71,8 +72,14 @@ router2.post('/reduce-part', verifyToken, async (req, res) => {
     }
 
     if (selectResult.rows.length > 0) {
-      // If the part exists, update the count
+      // If the part exists, check if the decrement value is valid
       const { part_id: existingPartId, count: existingPartCount } = selectResult.rows[0];
+      if (existingPartCount < decrementValue) {
+        await db.query('ROLLBACK');
+        return res.status(400).send({ message: 'Decrement value exceeds available count. Operation aborted.' });
+      }
+
+      // Update the count
       const updateQuery = `
         UPDATE parts
         SET count = count - $1
@@ -104,6 +111,7 @@ router2.post('/reduce-part', verifyToken, async (req, res) => {
     return res.status(500).send('Internal Server Error');
   }
 });
+
 
 
 //4.Ordering Parts
