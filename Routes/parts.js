@@ -4,43 +4,24 @@ const router2 = express.Router();
 const verifyToken = require("../middleware/authorize")
 const redis = require('redis');
 const redisClient = require('../redisConfig')
-// let redisClient
-// (async () => {
-//   redisClient = redis.createClient();
-//   redisClient.on("error", error => console.log(`Error: ${error}`))
-//   redisClient.on('connect', () => { console.log('Connected to Redis') })
-//   await redisClient.connect()
-// })()
-
-// let redisClient = redis.createredisClient();
-
-// redisClient.on("error", error => console.log(`Error: ${error}`));
-// redisClient.on('connect', () => {
-//   console.log('Connected to Redis');
-// });
-
-// let redisClient;
-// const createRedisredisClient = () => {
-//   redisClient = redis.createredisClient();
-//   redisClient.on('error', error => console.log(`Error: ${error}`));
-//   redisClient.on('connect', () => console.log('Connected to Redis'));
-
-//   return redisClient;
-// };
-// // Create the Redis redisClient
-// createRedisredisClient();
-
-// Create a Redis redisClient
-// const redisClient = redis.createredisClient();
-// // Event listeners for error and connect events
-// redisClient.on('error', error => console.error('Redis error:', error));
-// await redisClient.on('connect', () => console.log('Connected to Redis'));
 
 //1.Get All Parts
 router2.get("/allParts", verifyToken, async (req, res) => {
-  const data = await db.query('select * from parts')
-  res.send(data.rows)
+  try {
+    const catchedParts = await redisClient.get("AllParts")
+    if (catchedParts) {
+      return res.status(200).send(JSON.parse(catchedParts))
+    }
+    const data = await db.query('select * from parts')
+    const parts = data.rows
+    await redisClient.set("AllParts", JSON.stringify(parts), 'EX', 3600)
+    res.status(200).send(parts)
+  } catch (e) {
+    console.log(e)
+    res.status(500).json({ message: "Internal server error" })
+  }
 })
+//return rsponse is used so that it exits the function, ensuring no further code executed that might send another response
 
 
 //2.Get one particular part
@@ -226,17 +207,17 @@ router2.post("/new-customer", verifyToken, async (req, res) => {
 router2.get("/allCustomers", verifyToken, async (req, res) => {
   try {
     // Check Redis cache first
-    const cachedData = await redisClient.get('allCustomers');
-    
-    if (cachedData) {
+    const cachedCustomers = await redisClient.get('allCustomers');
+
+    if (cachedCustomers) {
       // If data exists in the cache, return it
-      return res.status(200).send(JSON.parse(cachedData));
+      return res.status(200).send(JSON.parse(cachedCustomers));
     }
 
     // If data does not exist in the cache, query the database
     const data = await db.query('SELECT * FROM customers');
     const customers = data.rows;
-    
+
     // Store the result in the Redis cache with an expiration time
     await redisClient.set('allCustomers', JSON.stringify(customers), 'EX', 3600); // Cache for 1 hour
     res.status(200).send(customers);
