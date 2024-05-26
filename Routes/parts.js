@@ -2,14 +2,48 @@ const db = require("../db");
 const express = require("express");
 const router2 = express.Router();
 const verifyToken = require("../middleware/authorize")
+const redis = require('redis');
+const redisClient = require('../redisConfig')
+// let redisClient
+// (async () => {
+//   redisClient = redis.createClient();
+//   redisClient.on("error", error => console.log(`Error: ${error}`))
+//   redisClient.on('connect', () => { console.log('Connected to Redis') })
+//   await redisClient.connect()
+// })()
 
-//Get All Parts
+// let redisClient = redis.createredisClient();
+
+// redisClient.on("error", error => console.log(`Error: ${error}`));
+// redisClient.on('connect', () => {
+//   console.log('Connected to Redis');
+// });
+
+// let redisClient;
+// const createRedisredisClient = () => {
+//   redisClient = redis.createredisClient();
+//   redisClient.on('error', error => console.log(`Error: ${error}`));
+//   redisClient.on('connect', () => console.log('Connected to Redis'));
+
+//   return redisClient;
+// };
+// // Create the Redis redisClient
+// createRedisredisClient();
+
+// Create a Redis redisClient
+// const redisClient = redis.createredisClient();
+// // Event listeners for error and connect events
+// redisClient.on('error', error => console.error('Redis error:', error));
+// await redisClient.on('connect', () => console.log('Connected to Redis'));
+
+//1.Get All Parts
 router2.get("/allParts", verifyToken, async (req, res) => {
   const data = await db.query('select * from parts')
   res.send(data.rows)
 })
 
-//Get one particular part
+
+//2.Get one particular part
 router2.get("/get-a-part", verifyToken, async (req, res) => {
   const { partId, partName } = req.body;
   try {
@@ -19,10 +53,9 @@ router2.get("/get-a-part", verifyToken, async (req, res) => {
     console.log(e)
     res.status(500).send({ message: "internal server error" })
   }
-
 })
 
-//Providing parts to service vehicle
+//3.Providing parts to service vehicle
 router2.post('/reduce-part', verifyToken, async (req, res) => {
   const { partId, partName, carModelName, decrementValue, partType } = req.body;
 
@@ -62,17 +95,24 @@ router2.post('/reduce-part', verifyToken, async (req, res) => {
       const updateQuery = `
         UPDATE parts
         SET count = count - $1
-        WHERE part_id = $2;
+        WHERE part_id = $2
+        RETURNING count;
       `;
-      await db.query(updateQuery, [decrementValue, existingPartId]);
+      const updateResult = await db.query(updateQuery, [decrementValue, existingPartId]);
 
-      let response = "Parts has been sent to the respective service vehicle.";
-      if (existingPartCount < 5) {
-        response += " The count of this particular part is below 5. Order more to maintain the minimum count";
+      if (updateResult.rowCount > 0) {
+        const newCount = updateResult.rows[0].count;
+        let response = "Parts have been sent to the respective service vehicle.";
+        if (newCount < 5) {
+          response += " The count of this particular part is below 5. Order more to maintain the minimum count.";
+        }
+
+        await db.query('COMMIT');
+        return res.status(200).json({ message: response });
+      } else {
+        await db.query('ROLLBACK');
+        return res.status(500).send('Failed to update the part count.');
       }
-
-      await db.query('COMMIT');
-      return res.status(200).json({ message: response });
     } else {
       await db.query('ROLLBACK');
       return res.status(404).send({ message: "Part is not in stock. Please order the parts." });
@@ -85,7 +125,7 @@ router2.post('/reduce-part', verifyToken, async (req, res) => {
 });
 
 
-//Ordering Parts
+//4.Ordering Parts
 router2.post('/update-part', verifyToken, async (req, res) => {
   const { partId, partName, carModelName, incrementValue, partType } = req.body;
 
@@ -143,7 +183,7 @@ router2.post('/update-part', verifyToken, async (req, res) => {
       await db.query(insertPartQuery, [partId, partName, partType, incrementValue, carModelId]);
     }
     await db.query('COMMIT');
-    res.status(200).json({message:'Operation completed successfully'});
+    res.status(200).json({ message: 'Operation completed successfully' });
   } catch (error) {
     console.error('Error executing query', error);
     await db.query('ROLLBACK');
@@ -152,7 +192,7 @@ router2.post('/update-part', verifyToken, async (req, res) => {
 });
 
 // -----------------------------
-// Customers
+//5. Customers
 router2.post("/new-customer", verifyToken, async (req, res) => {
   const { carNumber, customerName, count } = req.body;
   try {
@@ -181,17 +221,29 @@ router2.post("/new-customer", verifyToken, async (req, res) => {
   }
 });
 
+//6. Get All customers
+
 router2.get("/allCustomers", verifyToken, async (req, res) => {
   try {
-    const data = await db.query('select * from customers')
-    res.status(200).send(data.rows)
+    // Check Redis cache first
+    const cachedData = await redisClient.get('allCustomers');
+    
+    if (cachedData) {
+      // If data exists in the cache, return it
+      return res.status(200).send(JSON.parse(cachedData));
+    }
+
+    // If data does not exist in the cache, query the database
+    const data = await db.query('SELECT * FROM customers');
+    const customers = data.rows;
+    
+    // Store the result in the Redis cache with an expiration time
+    await redisClient.set('allCustomers', JSON.stringify(customers), 'EX', 3600); // Cache for 1 hour
+    res.status(200).send(customers);
   } catch (e) {
-    console.log(e)
-    res.status(500).send("Internal Server Error")
+    console.log(e);
+    res.status(500).send("Internal Server Error");
   }
-})
-
-
-
+});
 
 module.exports = router2;

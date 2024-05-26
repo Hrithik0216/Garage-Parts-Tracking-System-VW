@@ -7,6 +7,7 @@ const jwtGenerator = require("../utils/jwtGenerator");
 const validInfo = require("../middleware/validInfo")
 const authorize = require("../middleware/authorize")
 
+//(1)Get all users
 router.get("/getAll", async (req, res) => {
     try {
         const getAll = await db.query("SELECT * FROM users");
@@ -19,7 +20,7 @@ router.get("/getAll", async (req, res) => {
 });
 
 
-//Register Route
+// (2) Register Route
 // 1. Destructure MediaList, name, password
 // 2. Check if the user already exists (If so, throw error)
 // 3. Bcrypt password
@@ -55,7 +56,7 @@ router.post("/register", validInfo, async (req, res) => {
     }
 });
 
-//LoginRoute
+//(3)LoginRoute
 // 1. Destructure MediaList, name, password
 // 2. Check if the user already exists 
 // 3. Check if the incoming password is same as given password
